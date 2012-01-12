@@ -2,6 +2,7 @@ import os
 import sys
 import json
 import Queue
+import shutil
 import threading
 import subprocess
 
@@ -79,7 +80,25 @@ class DataSqueezer(object):
 
         self.extractors_dir = extractors_dir
 
-    def squeeze_from_file(self, filename):
+    def squeeze_dir(self, path, virtual_path=''):
+        results = []
+        for dirpath, dirnames, filenames in os.walk(path):
+            if not filenames:
+                continue
+            else:
+                for filename in filenames:
+                    fullfilename=os.path.join(dirpath, filename)
+                    res = self.squeeze_file(fullfilename, virtual_path = virtual_path )
+                    results.append(res)
+                    if res.has_key('is_container') and res['is_container'] and res['extracted']:
+                        # File is a container file (zip, rar, etc...)
+                        results.extend(self.squeeze_dir(res['extracted'], virtual_path=fullfilename)
+                        # Enable this after test
+                        #shutil.rmtree(res['extracted'])
+
+        return results
+
+    def squeeze_file(self, filename, virtual_path=''):
         unique_extractors = set( [ type_extractor.get_extractor(filename) for type_extractor in self.extractors ] )
         result_queue = Queue()
 
@@ -97,8 +116,13 @@ class DataSqueezer(object):
             res = result_queue.get()
             accumulated_result.update(res)
 
+        if virtual_path:
+            accumulated_result['file'] = os.path.join(virtual_path, os.path.basename(filename) )
+        else:
+            accumulated_result['file'] = filename
+
         return accumulated_result
 
 def __name__ == '__main__':
     ds = DataSqueezer()
-    print ds.squeeze_from_file(sys.argv[1])
+    print ds.squeeze_file(sys.argv[1])
