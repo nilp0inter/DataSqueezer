@@ -1,0 +1,16 @@
+#!/usr/bin/python
+
+COMMAND="catppt"
+
+import sys
+import json
+import subprocess
+
+if __name__=='__main__':
+    try:
+        result=subprocess.check_output([COMMAND, '-d', 'utf-8' , sys.argv[1]])
+        print json.JSONEncoder().encode({'plaintext': result})
+        sys.exit(0)
+    except Exception, e:
+        print e
+        sys.exit(2)
