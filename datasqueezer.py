@@ -22,13 +22,12 @@ class DataExtractor(threading.Thread):
         self.extractor_location = os.path.join(extractors_dir, *extractor_name.split('/'))
         self.decoder = json.JSONDecoder()
 
-        if not os.path.isfile(self.extractor_location):
+        if not os.path.exists(self.extractor_location):
             raise ValueError('Cannot locate extractor %s' % self.extractor_location)
 
     def run(self):
         try:
-            result_json = subprocess.check_output([ self.extractor_location,
-                self.filename ], shell=True)
+            result_json = subprocess.check_output([ self.extractor_location, self.filename ], shell=False)
         except subprocess.CalledProcessError:
             # Logging
             raise
@@ -51,14 +50,13 @@ class MimeByLibMagic(TypeExtractor):
 
     def get_extractor(self, filename):
         extractor = self.magic.from_file(filename)
-        #return extractor
-        return "application/pdf2"
+        return extractor
 
 class MimeByExtension(TypeExtractor):
     def __init__(self):
         self.known_extensions = { \
                 '.pdf' : "application/pdf", \
-                '.txt' : "plain/text", \
+                '.txt' : "text/plain", \
                 }
 
     def get_extractor(self, filename):
@@ -89,29 +87,25 @@ class DataSqueezer(object):
                 continue
             else:
                 for filename in filenames:
-                    results.append(self.squeeze_file(fullfilename, virtual_path = virtual_path ))
+                    results.append(self.squeeze_file(os.path.join(dirpath,
+                        filename), virtual_path = virtual_path,
+                        real_path=path ))
 
         return results
 
-    def squeeze_file(self, filename, virtual_path=''):
-
-        if not os.path.isfile(filename):
-            raise ValueError('%s is not a regular file' % filename)
-
+    def squeeze_file(self, filename, virtual_path='', real_path=''):
         # Identify types and get extractors
-        unique_extractors = set( [ type_extractor.get_extractor(filename) for type_extractor in self.extractors ] )
+        unique_extractors = set( filter(lambda x: True if x!=False else False ,
+            [ type_extractor.get_extractor(filename) for type_extractor in
+                self.extractors ] ))
         result_queue = Queue()
 
         # Execute data_extractors in parallel
         extractors_thread = []
         for extractor in unique_extractors:
-            if not extractor:
-                continue
-            try:
-                extractors_thread.append(DataExtractor(self.extractors_dir, extractor, result_queue, filename))
-                extractors_thread[-1].start()
-            except ValueError, e:
-                print filename, extractor
+            extractors_thread.append(DataExtractor(self.extractors_dir,
+                extractor, result_queue, os.path.abspath(filename)))
+            extractors_thread[-1].start()
 
         for extractor in extractors_thread:
             extractor.join()
@@ -122,10 +116,11 @@ class DataSqueezer(object):
             accumulated_result.update(res)
 
         if virtual_path:
-            virtual_filename = os.path.join(virtual_path, os.path.basename(filename) )
+            virtual_filename = os.path.sep.join((virtual_path, filename.replace(real_path, '',1) ))
+            #print virtual_path, real_path, filename, virtual_filename
             accumulated_result['file'] = virtual_filename
         else:
-            virtual_filename = ""
+            virtual_filename = filename
             accumulated_result['file'] = filename
 
         result = [ accumulated_result ]
@@ -133,7 +128,8 @@ class DataSqueezer(object):
                 accumulated_result['is_container'] and \
                 accumulated_result['extracted']:
             # File is a container file (zip, rar, etc...)
-            result.extend(self.squeeze_dir(accumulated_result['extracted'], virtual_path=virtual_filename))
+            result.extend(self.squeeze_dir(accumulated_result['extracted'],
+                virtual_path=virtual_filename))
             # Enable this after test
             #shutil.rmtree(accumulated_result['extracted'])
 
@@ -142,4 +138,6 @@ class DataSqueezer(object):
 
 if __name__ == '__main__':
     ds = DataSqueezer()
-    print ds.squeeze_file(sys.argv[1])
+    #print ds.squeeze_file(sys.argv[1])
+    print ds.squeeze_dir(sys.argv[1])
+    #ds.squeeze_dir(sys.argv[1])
